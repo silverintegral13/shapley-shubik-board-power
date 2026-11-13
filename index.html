@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Power Lab: Shapley-Shubik calculator</title>
+<meta name="description" content="Compute Shapley-Shubik power for boards with factions, overlapping coalitions, multi-condition voting rules and partial cohesion. Includes Tata Sons and Anthropic case studies.">
+<link rel="stylesheet" href="css/styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0b0b'/%3E%3Crect x='7' y='17' width='4' height='8' rx='1' fill='%232a78d6'/%3E%3Crect x='14' y='10' width='4' height='15' rx='1' fill='%23eb6834'/%3E%3Crect x='21' y='6' width='4' height='19' rx='1' fill='%231baf7a'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <h1>Board Power Lab</h1>
+      <span class="sub">Shapley-Shubik power for factions, overlapping coalitions and imperfect cohesion</span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button data-tab="calc" aria-selected="true">Calculator</button>
+      <button data-tab="curves" aria-selected="false">Power vs cohesion</button>
+      <button data-tab="cases" aria-selected="false">Case studies</button>
+      <button data-tab="method" aria-selected="false">Method</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+<!-- ================= CALCULATOR ================= -->
+<section class="tab active" id="tab-calc">
+  <div class="card">
+    <div class="card-head">
+      <div class="row">
+        <label class="field"><span>Start from</span><select id="preset" style="min-width:270px"></select></label>
+        <label class="field" style="flex:1;min-width:240px"><span>Title</span><input type="text" id="cfg-title"></label>
+      </div>
+      <div class="toolbar">
+        <button class="btn primary" id="dl-excel">⬇ Download Excel</button>
+        <button class="btn" id="share">Copy link</button>
+        <button class="btn" id="export-json">Export JSON</button>
+        <label class="btn">Import JSON<input type="file" id="import-json" accept=".json,application/json" hidden></label>
+      </div>
+    </div>
+    <p class="muted small" id="cfg-desc" style="margin:0"></p>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <div class="card">
+        <div class="card-head"><h2>1 · Members</h2><span class="muted small" id="member-count"></span></div>
+        <p class="small muted">Each member has a weight (number of votes, seats or % of shares). A member can sit in several coalitions.</p>
+        <div class="tablewrap"><table class="edit">
+          <thead><tr><th style="width:42%">Name</th><th>Weight</th><th>Coalitions</th><th></th></tr></thead>
+          <tbody id="members-body"></tbody>
+        </table></div>
+        <div class="row" style="margin-top:8px"><button class="btn" id="add-member">+ Add member</button></div>
+        <div class="row" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--grid)">
+          <strong class="small">Quick add a faction:</strong>
+          <input type="text" id="qa-name" placeholder="Faction name" style="width:150px">
+          <label class="small muted">members <input type="number" id="qa-size" value="3" min="1" max="30" style="width:60px"></label>
+          <label class="small muted">weight each <input type="number" id="qa-weight" value="1" min="0" step="any" style="width:70px"></label>
+          <button class="btn" id="quick-add">Add</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>2 · Coalitions and how they vote</h2><button class="btn" id="add-coalition">+ Add coalition</button></div>
+        <div id="coalitions"></div>
+        <label class="field" style="margin-top:6px"><span>If a member belongs to more than one coalition</span>
+          <select id="overlap">
+            <option value="merge">Merge: a shared member ties the blocs together</option>
+            <option value="first">Primary: the member votes with the first coalition listed</option>
+          </select></label>
+        <p class="small muted" style="margin-top:6px">Either way, an overlapping member counts towards every coalition's majority condition and towards every coalition's power total.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>3 · Decision rules</h2><button class="btn" id="add-rule">+ Add rule</button></div>
+        <p class="small muted">Each rule is a set of conditions that must all hold, e.g. an overall majority <em>and</em> a majority of one faction. Every rule is computed side by side.</p>
+        <div id="rules"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-head"><h2>Results</h2><button class="btn" id="dl-excel-2">⬇ Excel with all computations</button></div>
+        <div id="results"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CURVES ================= -->
+<section class="tab" id="tab-curves">
+  <div class="card">
+    <h2>Power of each coalition vs its internal strength</h2>
+    <p class="muted small" style="max-width:900px">Internal strength is measured in two ways: (a) the probability <b>p</b> that the coalition votes together, and (b) the number of <b>sub-factions</b> it splits into (1 = fully united; equal to its size = everyone votes on their own). Coalitions not being varied keep the behaviour set in the Calculator tab.</p>
+    <div class="row" style="gap:14px">
+      <label class="field"><span>Decision rule</span><select id="cv-rule"></select></label>
+      <label class="field"><span>Meaning of p</span>
+        <select id="cv-model">
+          <option value="probMember">Each member follows the bloc with probability p</option>
+          <option value="probBloc">Whole coalition votes together with probability p (else all split)</option>
+        </select></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>(a) Power vs probability of voting together</h3>
+      <div class="row">
+        <label class="field"><span>What varies</span>
+          <select id="cv-view">
+            <option value="own">Each coalition varies its own p (own curve)</option>
+            <option value="one">One coalition varies; show impact on all</option>
+            <option value="all">All coalitions share the same p</option>
+          </select></label>
+        <label class="field"><span>Coalition varied</span><select id="cv-target"></select></label>
+      </div>
+    </div>
+    <div class="legend" id="chart-p-legend"></div>
+    <div class="chart-box"><canvas id="chart-p" role="img" aria-label="Line chart of Shapley-Shubik power against probability p"></canvas></div>
+    <details style="margin-top:8px"><summary>Data table</summary><div class="tablewrap" id="table-p"></div></details>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>(b) Power vs number of sub-factions</h3>
+      <div class="row">
+        <label class="field"><span>What varies</span>
+          <select id="cv-kview">
+            <option value="own">Each coalition varies its own split (own curve)</option>
+            <option value="one">One coalition splits; show impact on all</option>
+          </select></label>
+        <label class="field"><span>Coalition varied</span><select id="cv-ktarget"></select></label>
+      </div>
+    </div>
+    <div class="legend" id="chart-k-legend"></div>
+    <div class="chart-box"><canvas id="chart-k" role="img" aria-label="Line chart of Shapley-Shubik power against number of sub-factions"></canvas></div>
+    <details style="margin-top:8px"><summary>Data table</summary><div class="tablewrap" id="table-k"></div></details>
+    <p class="small muted" id="cv-note" style="margin-top:8px"></p>
+  </div>
+</section>
+
+<!-- ================= CASE STUDIES ================= -->
+<section class="tab" id="tab-cases">
+  <div class="prose">
+    <div class="card">
+      <h2 style="margin-top:0">Case studies</h2>
+      <p>Every table and chart on this page is computed live by the same engine as the calculator. Each one has a button that loads it into the calculator so you can change the assumptions.</p>
+      <p class="small muted">Contents: <a href="#as">1. The assignment board</a> · <a href="#tata">2. Tata Sons and Tata Trusts</a> · <a href="#anth">3. Anthropic's S-1 governance</a> · <a href="#lessons">4. Lessons for board design</a></p>
+    </div>
+
+    <!-- Assignment -->
+    <div class="card" id="as">
+      <h2 style="margin-top:0">1. The university council (assignment)</h2>
+      <p>Eleven seats: Students 4, Staff 3, Faculty 2, Alumni 1, Corporate 1. Routine matters need a simple majority (6 of 11). Operational matters also need a majority of Faculty, which with two faculty members means <em>both</em>. Strategic matters also need a majority of Students (3 of 4).</p>
+      <h3>Q1 · Each faction votes as a bloc</h3>
+      <div id="as-q1"></div>
+      <div class="row" style="margin-top:6px"><button class="btn small" onclick="SSApp.open('assignment')">Open in calculator</button></div>
+      <h3>Q2 · Members vote independently</h3>
+      <div id="as-q2"></div>
+      <div class="row" style="margin-top:6px"><button class="btn small" onclick="SSApp.open('assignment', c => c.coalitions.forEach(x => x.cohesion = {type:'independent'}))">Open in calculator</button>
+        <button class="btn small" onclick="SSApp.openCurves('assignment', null, {rule:1, model:'probMember', view:'own'})">See power vs cohesion</button></div>
+      <h3>Q3 · What the numbers say</h3>
+      <ul>
+        <li><b>Seats are not power.</b> On routine matters Students hold 36% of seats but 40% of the power as a bloc. Alumni and Corporate hold 9% each but only 6.7%.</li>
+        <li><b>Concurrent-majority clauses create vetoes.</b> Requiring a Faculty majority turns 2 seats (18%) into 61.7% of operational power. Adding a Student majority for strategic matters leaves Students and Faculty with 50% each. Staff, Alumni and Corporate become <em>dummies</em>: they have 45% of the seats and zero power, because their votes can never change an outcome.</li>
+        <li><b>Cohesion helps big factions and can hurt veto factions.</b> Bloc voting raises Students' routine power from 36.4% to 40%. Under the operational rule, though, Faculty are <em>stronger</em> split (81.8%) than united (61.7%), because each faculty member becomes a separate veto player. A "majority of two" is really a unanimity requirement, and it hands every member a personal veto. The same arithmetic is at the heart of the Tata dispute below.</li>
+        <li><b>Design implication.</b> Use faction-majority clauses only where a group's consent is really needed. Avoid even-sized veto groups of two. Make sure no stakeholder becomes a permanent dummy, since a member whose vote never matters has little reason to engage. A casting vote or odd-sized sub-groups can soften these effects.</li>
+      </ul>
+    </div>
+
+    <!-- Tata -->
+    <div class="card" id="tata">
+      <h2 style="margin-top:0">2. Tata Sons: how Tata Trusts controls the board, and why it is now contested</h2>
+      <h3>The structure</h3>
+      <p>The Tata Trusts own about 66% of Tata Sons, the group's unlisted holding company. The Shapoorji Pallonji (SP) group owns about 18.4%, group companies about 12.9%, and individuals about 2.9%. The Trusts' 66% is not held by one entity: Sir Dorabji Tata Trust holds about 28% and Sir Ratan Tata Trust about 23.6%.</p>
+      <p>The Trusts' control over the <em>board</em> comes from two clauses in Tata Sons' Articles of Association, added between 2012 and 2014 and upheld by the Supreme Court in the 2021 Cyrus Mistry judgment:</p>
+      <ul>
+        <li><b>Article 104B</b> lets the Trusts nominate up to one-third of the directors.</li>
+        <li><b>Article 121</b> says that any board matter decided by a majority also needs the affirmative vote of a majority of the 104B (Trust-nominated) directors present. Commentators call this a "double-barrelled" majority.</li>
+      </ul>
+      <p>In Shapley-Shubik terms, Article 121 is a second winning condition: <code>board majority AND majority of Trust nominees</code>. That is exactly the Operational/Strategic rule from the assignment.</p>
+
+      <h3>The 2026 dispute in brief</h3>
+      <p>On 17 September 2026 the six-member board (Chairman N. Chandrasekaran, CFO Saurabh Agrawal, independents Harish Manwani and Anita Marangoly George, and Trust nominees Noel Tata and Venu Srinivasan) voted 4-1 to give Chandrasekaran another five-year term. Chandrasekaran recused himself. Noel Tata voted against. Venu Srinivasan voted for, even though one of the Trusts had tried to stop him attending and voting. The Trusts call the resolution a legal nullity: with two nominees, a "majority of nominees" needs both. Tata Sons relied on a casting vote to resolve the 1-1 split between the nominees. An earlier opinion by Justice R.F. Nariman had already held that nominee directors must use their own judgment and cannot be bound to vote as the Trusts instruct. Both sides held talks in late October, and the matter returns to the board on 26 November 2026.</p>
+
+      <h3>What the Trusts' seats are worth</h3>
+      <div id="tata-board"></div>
+      <div class="row" style="margin:6px 0 10px"><button class="btn small" onclick="SSApp.open('tata2026')">Open Sept-2026 board</button><button class="btn small" onclick="SSApp.open('tata2025')">Open 3-nominee board</button></div>
+      <div class="callout">
+        <p><b>How the Trusts exert control.</b> Without Article 121, two seats out of six give the Trusts' nominees one-third of the power, no more than any other pair of directors. Article 121 makes the nominee bloc a <em>veto player</em>: nothing passes without it. That lifts the Trusts to <b>58.3%</b> of board power from 33% of the seats. On a three-nominee board it was <b>75%</b> from 43% of the seats. On top of that, the Trusts' 66% shareholding makes them a dictator at the shareholder level (power 1.0 on ordinary resolutions; see below). They pick who sits on the board and hold a veto over what it decides.</p>
+      </div>
+
+      <h3>Why a 1-1 split matters so much: power vs nominee loyalty</h3>
+      <p>The Trusts can nominate directors, but they cannot instruct them. So the useful measure of "internal strength" here is <b>p, the probability that each nominee follows the Trusts' line</b>. The solid lines show the expected power exercised <em>on the Trusts' behalf</em>: the bloc of nominees who follow them. The dashed line shows the two nominees' combined personal power.</p>
+      <div class="legend" id="tata-chart-legend"></div>
+      <div class="chart-box"><canvas id="tata-chart" role="img" aria-label="Power of the Trusts' line against nominee loyalty"></canvas></div>
+      <ul>
+        <li>With full loyalty (p = 1) both readings give the Trusts 58.3%. The dispute only bites when the nominees split.</li>
+        <li>At p = 0.5, about where the Trusts stand when one nominee sides with management, the Trusts' line is worth <b id="tata-p-half"></b> under their own reading of Article 121 but only <b id="tata-p-half-ts"></b> under Tata Sons' casting-vote reading. Under the Trusts' reading each nominee individually holds a veto (38.3% each, see table below), so Noel Tata's single "no" blocks the reappointment. Under Tata Sons' reading that veto is gone.</li>
+        <li>The dashed line falls as p rises: two independent veto-holders have more combined power (76.7%) than one united bloc (58.3%). That power belongs to the individuals, though, not to the Trusts. This is why the Trusts have spent 2025-26 trying to raise p: annual reappointment of nominees over 75, a proposed protocol requiring nominees to consult the trustees, and an attempt to withdraw Srinivasan's authority to vote.</li>
+      </ul>
+      <div class="row" style="margin:6px 0"><button class="btn small" onclick="SSApp.openCurves('tata2026', null, {rule:1, model:'probMember', view:'one', target:0})">Explore in the Power vs cohesion tab</button></div>
+      <h4>Board power when the two nominees vote independently</h4>
+      <div id="tata-matrix"></div>
+
+      <h3>Shareholder level</h3>
+      <p>At general meetings, which appoint directors and pass special resolutions, the Trusts' 66% decides ordinary resolutions alone and holds a veto over special resolutions (75%). The table also shows what happens if the trusts stop acting together. The two largest trusts (51.5%) would still control ordinary resolutions between them, but the "Trusts" as an institution would fall from 100% to 73% of power. The internal split among the trustees that led to Vijay Singh's exit and Mehli Mistry's departure (and, in November 2026, Darius Khambata's) is a cohesion problem one level up.</p>
+      <div id="tata-sh"></div>
+      <div id="tata-sh-split" style="margin-top:8px"></div>
+      <div class="row" style="margin:6px 0"><button class="btn small" onclick="SSApp.open('tataShareholders')">Open shareholder model</button></div>
+    </div>
+
+    <!-- Anthropic -->
+    <div class="card" id="anth">
+      <h2 style="margin-top:0">3. Anthropic: the S-1 two-key structure</h2>
+      <h3>The structure (Form S-1, filed 26 October 2026)</h3>
+      <ul>
+        <li><b>Board:</b> seven authorised directors. Four are <b>Class T directors</b>, elected and removed by the <b>Long-Term Benefit Trust (LTBT)</b> as sole holder of Class T stock: Reed Hastings, Vas Narasimhan, Chris Liddell and one vacancy. The other three (Dario Amodei, Daniela Amodei as Chair, and a third director) are elected by Class A and Class F holders voting together.</li>
+        <li><b>Stockholders:</b> a single <b>Class F</b> share held by the <b>Founder LLC</b> carries 50.1% of total voting power on general matters. The LLC votes it as a majority of the seven co-founders directs. If they can't agree, the share votes proportionally with Class A. Public <b>Class A</b> stock has one vote per share. Class N (mainly strategic partners such as Amazon and Google) has no general vote. Class T has no economic rights and votes only on its own directors and a few protective matters.</li>
+        <li><b>Protected matters:</b> some bylaw provisions need <b>80% of the Whole Board</b> (6 of 7). Changing the LTBT or the Class T rights needs the <b>Trust Amendment Threshold</b>. With the Trustees in favour, that means 80% of authorised directors <em>and</em> 80% of the Trustees in office. There is also a stockholder route without the Trustees, which needs the Class F share (co-founder unanimity in the first three years), employee Class E and Class A approval. After the Class F sunset it needs 85% of Class A.</li>
+      </ul>
+
+      <h3>Board power</h3>
+      <div id="anth-board"></div>
+      <div class="row" style="margin:6px 0 10px"><button class="btn small" onclick="SSApp.open('anthropicBoard')">Open 7-seat board</button><button class="btn small" onclick="SSApp.open('anthropicVacancy')">Open board with vacancy</button></div>
+      <div class="callout">
+        <p><b>How power works.</b> With all four Class T seats filled and those directors acting together, the LTBT-elected bloc is a <em>dictator</em> on ordinary board resolutions (power 1.0 from 57% of seats). The founder-side directors' votes never change an outcome. Today, with one Class T seat vacant, each side has three directors and a majority of the Whole Board still needs four, so each side holds a veto and power is 50/50. Filling the fourth seat is worth half the board's power to the LTBT. On 80%-of-board matters it is 50/50 whatever happens.</p>
+      </div>
+      <p>As with Tata, the guardian's power runs through directors who owe their own fiduciary duties. The S-1 says the Trust and its Trustees take no part in day-to-day management or strategy. So the relevant "internal strength" is how reliably the Class T directors vote together:</p>
+      <div class="legend" id="anth-chart-legend"></div>
+      <div class="chart-box"><canvas id="anth-chart" role="img" aria-label="Class T directors' power against cohesion"></canvas></div>
+      <ul>
+        <li>If the Class T directors act independently while the founder-side directors stay united, the founder-side bloc gets <b>60%</b>, more than its seat share. A cohesive minority beats a fragmented majority.</li>
+        <li>With the vacancy (dashed line), the Class T directors cannot get above 50% however united they are.</li>
+      </ul>
+      <div class="row" style="margin:6px 0"><button class="btn small" onclick="SSApp.openCurves('anthropicBoard', null, {rule:0, model:'probMember', view:'one', target:0})">Explore in the Power vs cohesion tab</button></div>
+
+      <h3>Amending the Trust itself</h3>
+      <p>Under the Trust Amendment Threshold (route i), the Class T directors, the founder-side directors and the Trustees are each veto players: <b>one-third each</b> as blocs. The LTBT's protection does not rest on its board majority alone. Changing its rights needs the founder-side directors and the Trustees as well. The alternative stockholder route requires Founder LLC unanimity for the first three years, a cohesion requirement of p = 1 across all seven co-founders.</p>
+      <div id="anth-trust"></div>
+      <div class="row" style="margin:6px 0"><button class="btn small" onclick="SSApp.open('anthropicTrust')">Open Trust Amendment model</button></div>
+
+      <h3>Stockholder level: the Founder LLC as a cohesion device</h3>
+      <p>Because a single share carries 50.1% of the vote, the Founder LLC is a dictator on general stockholder matters, including electing the three non-Class T directors. Public Class A, with 49.9% of the votes, has zero Shapley-Shubik power. The LLC wrapper matters: if the seven co-founders voted their slices separately, Class A would hold 75% of the power. The LLC turns seven people into one guaranteed bloc, and inside it each co-founder has a one-seventh say.</p>
+      <div id="anth-stock"></div>
+      <div id="anth-stock-split" style="margin-top:8px"></div>
+      <div class="row" style="margin:6px 0"><button class="btn small" onclick="SSApp.open('anthropicStock')">Open stockholder model</button></div>
+      <div class="callout"><p><b>Summary.</b> Anthropic runs a two-key system. The LTBT holds the key to ordinary board decisions once its four seats are filled. The Founder LLC holds the key to stockholder votes and the other three seats. The most important changes, to protected bylaws and to the Trust itself, need both keys.</p></div>
+    </div>
+
+    <div class="card" id="lessons">
+      <h2 style="margin-top:0">4. Lessons for board design</h2>
+      <ul>
+        <li><b>Control comes from rules, not shares.</b> The Tata Trusts own 66% of Tata Sons, but their board control comes from Articles 104B and 121. Anthropic's LTBT owns no economic interest at all and still elects the board majority.</li>
+        <li><b>A veto from a group of two is a personal veto.</b> The assignment's faculty, Tata's two nominees and Anthropic's 3-3 board with a vacancy all show it: even-sized blocs and "majority of two" clauses split power in ways the drafters may not have meant.</li>
+        <li><b>Guardians depend on loyalty they cannot command.</b> Both structures give power to directors who must exercise their own judgment. Power vs p is the right way to judge such a design, not the seat count.</li>
+        <li><b>Cohesion devices are power devices.</b> The Founder LLC's single share, Tata's nominee protocols and bloc-voting agreements all raise p. A small cohesive bloc can outweigh a larger fragmented one.</li>
+        <li><b>Spell out tie-breaks.</b> The Tata dispute is about whether a casting vote can cure a split inside the protected class. Writing that down would have settled what the dispute is about: whether the Trusts' power is 58% or 40%.</li>
+      </ul>
+    </div>
+
+    <div class="card sources">
+      <h3 style="margin-top:0">Sources</h3>
+      <p class="small"><b>Tata Sons</b></p>
+      <ul>
+        <li><a href="https://indiacorplaw.in/2026/09/19/the-tata-sons-leadership-imbroglio-some-corporate-law-and-governance-considerations-part-i/" target="_blank" rel="noopener">IndiaCorpLaw: The Tata Sons leadership imbroglio, Part I (19 Sep 2026)</a></li>
+        <li><a href="https://theleaflet.in/opinion/decoding-illusion-of-corporate-constitutionalism-affirmative-vetoes-and-the-battle-for-tata-sons" target="_blank" rel="noopener">The Leaflet: Affirmative vetoes and the battle for Tata Sons (text of Article 121)</a></li>
+        <li><a href="https://theprint.in/judiciary/why-tata-trusts-chandrasekaran-challenge-goes-back-to-the-supreme-courts-2021-mistry-ruling/3049119/" target="_blank" rel="noopener">ThePrint: Why the Trusts' challenge goes back to the 2021 Mistry ruling</a></li>
+        <li><a href="https://www.outlookbusiness.com/corporate/tata-sons-vs-noel-tata-voting-math-behind-boardroom-battle-explained" target="_blank" rel="noopener">Outlook Business: Voting maths behind the boardroom battle</a></li>
+        <li><a href="https://www.outlookbusiness.com/corporate/tata-sons-vs-tata-trusts-the-battle-over-who-calls-the-shots" target="_blank" rel="noopener">Outlook Business: The battle over who calls the shots (Art. 104B one-third)</a></li>
+        <li><a href="https://www.businesstoday.in/latest/corporate/story/tata-sons-trusts-battle-when-justice-nariman-said-nominee-directors-not-bound-by-trusts-directions-558087-2026-09-27" target="_blank" rel="noopener">Business Today: Justice Nariman's opinion on nominee directors</a></li>
+        <li><a href="https://theprint.in/india/inside-the-24-hours-that-laid-bare-tatas-brutal-power-struggle/3047809/" target="_blank" rel="noopener">ThePrint: Inside the 24 hours that laid bare Tata's power struggle</a></li>
+        <li><a href="https://www.aljazeera.com/news/2026/9/25/tata-v-tata-whats-behind-indias-big-boardroom-brawl" target="_blank" rel="noopener">Al Jazeera: Tata v Tata</a></li>
+        <li><a href="https://www.freepressjournal.in/business/tata-sons-listing-battle-who-really-controls-indias-biggest-conglomerate" target="_blank" rel="noopener">Free Press Journal: Shareholding of Tata Sons</a></li>
+        <li><a href="https://www.business-standard.com/s/2gAABYe" target="_blank" rel="noopener">Business Standard: Letters ahead of the 26 Nov 2026 board meeting</a></li>
+        <li><a href="https://www.outlookbusiness.com/corporate/darius-khambata-exits-tata-trusts-srtt-sdtt-tata-sons-listing-calls-sept-17-day-of-infamy-boardroom-rift" target="_blank" rel="noopener">Outlook Business: Darius Khambata exits Tata Trusts</a></li>
+      </ul>
+      <p class="small"><b>Anthropic</b></p>
+      <ul>
+        <li><a href="https://www.sec.gov/Archives/edgar/data/0002130357/000162828026067168/anthropicpbc-sx1.htm" target="_blank" rel="noopener">Anthropic, PBC: Form S-1 (SEC EDGAR, 26 Oct 2026)</a></li>
+        <li><a href="https://www.sec.gov/Archives/edgar/data/0002130357/000162828026067168/exhibit33-sx1.htm" target="_blank" rel="noopener">S-1 Exhibit 3.3: restated certificate (Trust Amendment Threshold)</a></li>
+        <li><a href="https://www.sec.gov/Archives/edgar/data/0002130357/000162828026067168/exhibit35-sx1.htm" target="_blank" rel="noopener">S-1 Exhibit 3.5: bylaws (80% of Whole Board provisions)</a></li>
+        <li><a href="https://www.sec.gov/Archives/edgar/data/0002130357/000162828026067168/exhibit991-sx1.htm" target="_blank" rel="noopener">S-1 Exhibit 99.1: LTBT Trust Agreement</a></li>
+        <li><a href="https://fourweekmba.com/ai-anthropics-ipo-filing-shows-how-its-trust-could-lose-power/" target="_blank" rel="noopener">FourWeekMBA: How the Trust could lose power</a></li>
+        <li><a href="https://fortune.com/2026/10/26/anthropic-ipo-dual-class-share-structure-zuckerberg-musk-new-york-times/" target="_blank" rel="noopener">Fortune: Anthropic's share classes</a></li>
+        <li><a href="https://www.businessday.co.za/world/international-companies/2026-10-27-anthropic-sets-governance-to-prioritise-humanity-over-investors/" target="_blank" rel="noopener">Reuters via BusinessDay: Anthropic's governance</a></li>
+        <li><a href="https://www.useluminix.com/reports/company-overviews/who-owns-anthropic/source/4" target="_blank" rel="noopener">Luminix: Who owns Anthropic (share class summary)</a></li>
+      </ul>
+      <p class="small muted">Modelling assumptions: Tata Sons' casting-vote reading is approximated as "board majority and at least one of the two nominees". Anthropic's ordinary board resolutions are modelled as a majority of the Whole Board (4 of 7). The third Class A/F seat and the Trustees are shown as generic members. Shareholdings are rounded.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= METHOD ================= -->
+<section class="tab" id="tab-method">
+  <div class="prose">
+    <div class="card">
+      <h2 style="margin-top:0">Method</h2>
+      <h3>Shapley-Shubik index</h3>
+      <p>Line the players up in every possible order. Each one says "yes" in turn, and the <b>pivotal</b> player is the one whose vote first makes the motion pass. A player's index is the share of the n! orders in which they are pivotal. The equivalent subset form, used by the engine:</p>
+      <div class="formula">φ<sub>i</sub> = Σ<sub>S ⊆ N∖{i}</sub> |S|! (n − |S| − 1)! / n! · [ v(S ∪ {i}) − v(S) ]</div>
+      <p>Here v(S) = 1 if the yes-voters in S satisfy <em>every</em> condition of the rule, and 0 otherwise. The indices add up to 1. This is the same calculation as the class spreadsheet, which lists the orderings and counts pivots (the Excel download includes that view for up to 8 players).</p>
+      <h3>Players, members and coalitions</h3>
+      <ul>
+        <li>A <b>player</b> is a group of members who vote together. A bloc-voting faction of four is one player with weight 4.</li>
+        <li>A player's power is split among its members by weight. A <b>coalition's power</b> is the sum over its members, so overlapping coalitions can add up to more than 1.</li>
+        <li><b>Overlap.</b> In <em>Merge</em> mode, a member in two bloc-voting coalitions links them into one bloc, since that member must vote with both. In <em>Primary</em> mode, the member votes with the first coalition listed. In both modes, they count towards each coalition's majority conditions.</li>
+      </ul>
+      <h3>Voting behaviour inside a coalition</h3>
+      <ul>
+        <li><b>Bloc</b>: one player. <b>Independent</b>: every member is a player.</li>
+        <li><b>k sub-factions</b>: members are split as evenly as possible into k groups (or into explicit sizes such as 2,1,1), and each group votes together.</li>
+        <li><b>N vote together</b>: a core of N members is one bloc, and the rest vote on their own.</li>
+        <li><b>Probability p (whole coalition)</b>: with probability p the coalition is a bloc, otherwise every member votes on their own.</li>
+        <li><b>Probability p (each member)</b>: each member follows the coalition line with probability p. The followers form one bloc and defectors vote alone, so a coalition of m members has 2<sup>m</sup> possible structures.</li>
+      </ul>
+      <p>For probabilistic behaviour the engine enumerates every voting structure across all coalitions, computes the exact index for each, and reports the probability-weighted average (the expected Shapley-Shubik power). If there are more than 4,096 structures it samples them. Exact enumeration handles up to 20 voting blocs per structure; beyond that the index is estimated from 40,000 random orderings.</p>
+      <h3>Decision rules</h3>
+      <p>A rule is a list of conditions that must all hold. Each condition looks at the yes-weight inside a scope (all members or one coalition) and requires it to be <em>more than x%</em>, <em>at least x%</em>, or <em>at least x votes</em>. This covers simple and special majorities, concurrent majorities ("majority of faculty"), affirmative-vote clauses (Tata's Article 121), Whole-Board thresholds with vacancies (give the vacant seat weight 0 and use a vote count), and supermajorities on several bodies at once (Anthropic's Trust Amendment Threshold).</p>
+      <h3>Excel download</h3>
+      <p>The workbook contains: the inputs; a summary; for every rule, a <em>Subsets</em> sheet (each subset with the weight formula <code>FACT(|S|)*FACT(n-|S|-1)/FACT(n)</code>, whether it passes, and who swings it, with power as <code>SUMPRODUCT</code>); an <em>Orderings</em> sheet (every voting order and its pivot, with power as <code>COUNTIF/n!</code>); a <em>Scenarios</em> sheet for probabilistic structures; and the sweep data behind both charts.</p>
+      <h3>Verification</h3>
+      <p>The IIMA SAO example from class (PGP 4, PhD 2, ePGP 2, Director 1; 5 of 9) gives PGP = 0.5 and the other three 1/6 each, matching the class spreadsheet.</p>
+    </div>
+  </div>
+</section>
+</main>
+<footer>Board Power Lab · open-source static site · Shapley-Shubik engine in plain JavaScript · charts by Chart.js · Excel export by SheetJS</footer>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="vendor/chart.umd.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/presets.js"></script>
+<script src="js/excel.js"></script>
+<script src="js/cases.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
